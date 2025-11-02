@@ -5,6 +5,8 @@ from flask import Flask, request, render_template, jsonify
 from threading import Thread, Lock
 import logging
 from datetime import datetime
+import random
+import json
 
 # Flask app setup
 app = Flask(__name__)
@@ -14,22 +16,13 @@ app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global variables
-task_status = {
-    'running': False,
-    'progress': 0,
-    'total_messages': 0,
-    'sent_messages': 0,
-    'failed_messages': 0,
-    'current_message': '',
-    'start_time': None,
-    'end_time': None
-}
-status_lock = Lock()
+# Global variables for multi-task support
+tasks = {}
+tasks_lock = Lock()
 
-def send_facebook_comment(access_token, post_id, message):
+def send_facebook_comment(access_token, post_id, message, task_id):
     """
-    Send a single comment to Facebook post using Graph API
+    Improved Facebook comment sending with better error handling
     """
     try:
         url = f"https://graph.facebook.com/v19.0/{post_id}/comments"
@@ -40,32 +33,43 @@ def send_facebook_comment(access_token, post_id, message):
         }
         
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json'
         }
         
         response = requests.post(url, data=payload, headers=headers, timeout=30)
         response_data = response.json()
         
         if response.status_code == 200 and 'id' in response_data:
-            logger.info(f"✅ Comment sent successfully: {message[:50]}...")
-            return True
+            logger.info(f"✅ [{task_id}] Comment sent: {message[:30]}...")
+            return True, "Success"
         else:
             error_msg = response_data.get('error', {}).get('message', 'Unknown error')
-            logger.error(f"❌ Facebook API Error: {error_msg}")
-            return False
+            error_code = response_data.get('error', {}).get('code', 'Unknown')
+            
+            # Update task with specific error
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['last_error'] = f"{error_code}: {error_msg}"
+            
+            logger.error(f"❌ [{task_id}] Facebook Error {error_code}: {error_msg}")
+            return False, error_msg
             
     except Exception as e:
-        logger.error(f"❌ Network error: {str(e)}")
-        return False
+        error_msg = f"Network error: {str(e)}"
+        with tasks_lock:
+            if task_id in tasks:
+                tasks[task_id]['last_error'] = error_msg
+        logger.error(f"❌ [{task_id}] {error_msg}")
+        return False, error_msg
 
-def process_messages(access_token, post_id, messages, delay_seconds=10):
+def process_messages(task_id, access_tokens, post_id, messages, delay_seconds=10):
     """
-    Process all messages with delay between each
+    Process messages with multiple tokens and better error handling
     """
-    global task_status
-    
-    with status_lock:
-        task_status.update({
+    # Initialize task
+    with tasks_lock:
+        tasks[task_id] = {
             'running': True,
             'progress': 0,
             'total_messages': len(messages),
@@ -73,57 +77,86 @@ def process_messages(access_token, post_id, messages, delay_seconds=10):
             'failed_messages': 0,
             'current_message': 'Starting...',
             'start_time': datetime.now().isoformat(),
-            'end_time': None
-        })
+            'end_time': None,
+            'active_tokens': len(access_tokens),
+            'last_error': None,
+            'current_token_index': 0
+        }
     
     try:
         for index, message in enumerate(messages):
             if not message.strip():
                 continue
                 
-            with status_lock:
-                task_status['current_message'] = f"Sending: {message[:50]}..."
-                task_status['progress'] = int((index / len(messages)) * 100)
+            # Update current message
+            with tasks_lock:
+                tasks[task_id]['current_message'] = f"Sending: {message[:50]}..."
+                tasks[task_id]['progress'] = int((index / len(messages)) * 100)
             
-            logger.info(f"📤 Sending message {index + 1}/{len(messages)}: {message[:50]}...")
+            logger.info(f"📤 [{task_id}] Sending {index + 1}/{len(messages)}: {message[:50]}...")
             
-            # Send the comment
-            success = send_facebook_comment(access_token, post_id, message)
-            
-            with status_lock:
+            # Try all tokens for this message
+            message_sent = False
+            for token_index, token in enumerate(access_tokens):
+                with tasks_lock:
+                    tasks[task_id]['current_token_index'] = token_index
+                
+                # Check if task was stopped
+                with tasks_lock:
+                    if not tasks[task_id]['running']:
+                        break
+                
+                success, error_msg = send_facebook_comment(token, post_id, message, task_id)
+                
                 if success:
-                    task_status['sent_messages'] += 1
+                    with tasks_lock:
+                        tasks[task_id]['sent_messages'] += 1
+                    message_sent = True
+                    break
                 else:
-                    task_status['failed_messages'] += 1
-                task_status['progress'] = int(((index + 1) / len(messages)) * 100)
+                    # Try next token if this one fails
+                    continue
+            
+            if not message_sent:
+                with tasks_lock:
+                    tasks[task_id]['failed_messages'] += 1
+            
+            # Update progress
+            with tasks_lock:
+                tasks[task_id]['progress'] = int(((index + 1) / len(messages)) * 100)
             
             # Stop if task was cancelled
-            with status_lock:
-                if not task_status['running']:
+            with tasks_lock:
+                if not tasks[task_id]['running']:
                     break
             
             # Wait before next message (except for the last one)
             if index < len(messages) - 1:
                 for i in range(delay_seconds):
                     time.sleep(1)
-                    # Check if task was cancelled during delay
-                    with status_lock:
-                        if not task_status['running']:
+                    with tasks_lock:
+                        if not tasks[task_id]['running']:
                             break
+        
+        # Mark task as completed
+        with tasks_lock:
+            tasks[task_id]['running'] = False
+            tasks[task_id]['end_time'] = datetime.now().isoformat()
+            tasks[task_id]['current_message'] = 'Completed!'
             
-        with status_lock:
-            task_status['running'] = False
-            task_status['end_time'] = datetime.now().isoformat()
-            task_status['current_message'] = 'Completed!'
-            
-        logger.info("🎉 All messages processed!")
+        logger.info(f"🎉 [{task_id}] Task completed!")
         
     except Exception as e:
-        with status_lock:
-            task_status['running'] = False
-            task_status['end_time'] = datetime.now().isoformat()
-            task_status['current_message'] = f'Error: {str(e)}'
-        logger.error(f"❌ Task failed: {str(e)}")
+        with tasks_lock:
+            if task_id in tasks:
+                tasks[task_id]['running'] = False
+                tasks[task_id]['end_time'] = datetime.now().isoformat()
+                tasks[task_id]['current_message'] = f'Error: {str(e)}'
+        logger.error(f"❌ [{task_id}] Task failed: {str(e)}")
+
+def generate_task_id():
+    """Generate unique task ID"""
+    return f"task_{int(time.time())}_{random.randint(1000, 9999)}"
 
 @app.route('/')
 def index():
@@ -131,24 +164,28 @@ def index():
 
 @app.route('/start', methods=['POST'])
 def start_task():
-    global task_status
-    
-    # Check if task is already running
-    with status_lock:
-        if task_status['running']:
-            return jsonify({'success': False, 'error': 'Task is already running!'})
-    
     try:
         # Get form data
-        access_token = request.form.get('access_token', '').strip()
+        access_tokens_text = request.form.get('access_tokens', '').strip()
         post_id = request.form.get('post_id', '').strip()
         delay = int(request.form.get('delay', 10))
         
         # Validate inputs
-        if not access_token:
-            return jsonify({'success': False, 'error': 'Facebook Access Token is required!'})
+        if not access_tokens_text:
+            return jsonify({'success': False, 'error': 'Facebook Access Tokens are required!'})
         if not post_id:
             return jsonify({'success': False, 'error': 'Post ID is required!'})
+        
+        # Parse multiple tokens (comma or newline separated)
+        access_tokens = []
+        for line in access_tokens_text.split('\n'):
+            for token in line.split(','):
+                token = token.strip()
+                if token and token.startswith('EAAG'):
+                    access_tokens.append(token)
+        
+        if not access_tokens:
+            return jsonify({'success': False, 'error': 'No valid Facebook tokens found!'})
         
         # Get messages file
         if 'messages_file' not in request.files:
@@ -168,37 +205,57 @@ def start_task():
         if not messages:
             return jsonify({'success': False, 'error': 'No messages found in file!'})
         
+        # Generate unique task ID
+        task_id = generate_task_id()
+        
         # Start the task in background thread
         thread = Thread(
             target=process_messages,
-            args=(access_token, post_id, messages, delay),
+            args=(task_id, access_tokens, post_id, messages, delay),
             daemon=True
         )
         thread.start()
         
         return jsonify({
             'success': True, 
-            'message': f'Task started with {len(messages)} messages!',
-            'total_messages': len(messages)
+            'message': f'Task {task_id} started with {len(access_tokens)} tokens and {len(messages)} messages!',
+            'task_id': task_id,
+            'total_messages': len(messages),
+            'total_tokens': len(access_tokens)
         })
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'Error: {str(e)}'})
 
-@app.route('/stop', methods=['POST'])
-def stop_task():
-    with status_lock:
-        task_status['running'] = False
-        task_status['current_message'] = 'Stopping...'
+@app.route('/stop/<task_id>', methods=['POST'])
+def stop_task(task_id):
+    with tasks_lock:
+        if task_id in tasks:
+            tasks[task_id]['running'] = False
+            tasks[task_id]['current_message'] = 'Stopping...'
+            return jsonify({'success': True, 'message': f'Task {task_id} stopping...'})
     
-    return jsonify({'success': True, 'message': 'Task stopping...'})
+    return jsonify({'success': False, 'error': 'Task not found!'})
 
-@app.route('/status')
-def get_status():
-    with status_lock:
-        status = task_status.copy()
+@app.route('/status/<task_id>')
+def get_task_status(task_id):
+    with tasks_lock:
+        if task_id in tasks:
+            return jsonify(tasks[task_id])
     
-    return jsonify(status)
+    return jsonify({'error': 'Task not found'})
+
+@app.route('/tasks')
+def list_tasks():
+    with tasks_lock:
+        active_tasks = {tid: task for tid, task in tasks.items() if task['running']}
+        completed_tasks = {tid: task for tid, task in tasks.items() if not task['running']}
+    
+    return jsonify({
+        'active_tasks': active_tasks,
+        'completed_tasks': completed_tasks,
+        'total_tasks': len(tasks)
+    })
 
 @app.route('/health')
 def health_check():
