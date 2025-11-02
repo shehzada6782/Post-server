@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Facebook Auto Commenter</title>
+    <title>🚀 Multi-Task Facebook Auto Commenter</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {
@@ -12,51 +12,64 @@
             padding: 20px;
         }
         .container {
-            max-width: 800px;
+            max-width: 1000px;
             background: white;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
             padding: 30px;
             margin-top: 30px;
         }
-        .status-card {
+        .task-card {
             background: #f8f9fa;
             border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 5px solid #007bff;
+        }
+        .task-card.running {
+            border-left-color: #28a745;
+        }
+        .task-card.completed {
+            border-left-color: #6c757d;
+        }
+        .task-card.failed {
+            border-left-color: #dc3545;
         }
         .progress {
-            height: 25px;
+            height: 20px;
             margin: 10px 0;
         }
         .btn-custom {
             background: linear-gradient(45deg, #667eea, #764ba2);
             color: white;
             border: none;
-            padding: 12px 30px;
+            padding: 10px 20px;
             border-radius: 25px;
             font-weight: bold;
         }
-        .btn-stop {
-            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+        .token-badge {
+            background: #17a2b8;
             color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8em;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1 class="text-center mb-4">🚀 Facebook Auto Commenter</h1>
+        <h1 class="text-center mb-4">🚀 Multi-Task Facebook Auto Commenter</h1>
         
         <!-- Input Form -->
         <div class="card mb-4">
             <div class="card-body">
                 <form id="taskForm" enctype="multipart/form-data">
                     <div class="mb-3">
-                        <label class="form-label">Facebook Access Token</label>
-                        <input type="password" class="form-control" name="access_token" 
-                               placeholder="EAAG..." required>
+                        <label class="form-label">Facebook Access Tokens (Multiple)</label>
+                        <textarea class="form-control" name="access_tokens" rows="3" 
+                                  placeholder="Enter multiple tokens (one per line or comma separated)&#10;EAAG...&#10;EAAG..." required></textarea>
                         <div class="form-text">
-                            Get token from: <a href="https://developers.facebook.com/tools/explorer/" target="_blank">Facebook Graph API Explorer</a>
+                            Multiple tokens se zyada comments send kar sakte ho! Har line pe ek token.
                         </div>
                     </div>
                     
@@ -85,59 +98,46 @@
                     
                     <div class="d-grid gap-2">
                         <button type="submit" class="btn btn-custom" id="startBtn">
-                            🚀 Start Auto Commenting
-                        </button>
-                        <button type="button" class="btn btn-stop" id="stopBtn" disabled>
-                            🛑 Stop Task
+                            🚀 Start New Task
                         </button>
                     </div>
                 </form>
             </div>
         </div>
         
-        <!-- Status Display -->
-        <div class="status-card">
-            <h5>📊 Task Status</h5>
-            <div id="statusDisplay">
-                <div class="text-center text-muted">
-                    No task running...
-                </div>
-            </div>
-            
-            <div class="progress mt-3" style="display: none;" id="progressBarContainer">
-                <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                     role="progressbar" style="width: 0%" id="progressBar">
-                    0%
-                </div>
-            </div>
-            
-            <div id="statusDetails" class="mt-3" style="display: none;">
-                <div class="row text-center">
-                    <div class="col-md-4">
-                        <strong id="sentCount">0</strong><br>
-                        <small>Sent</small>
-                    </div>
-                    <div class="col-md-4">
-                        <strong id="failedCount">0</strong><br>
-                        <small>Failed</small>
-                    </div>
-                    <div class="col-md-4">
-                        <strong id="totalCount">0</strong><br>
-                        <small>Total</small>
+        <!-- Active Tasks -->
+        <div class="card">
+            <div class="card-body">
+                <h5>🔄 Active Tasks</h5>
+                <div id="activeTasks">
+                    <div class="text-center text-muted">
+                        No active tasks...
                     </div>
                 </div>
             </div>
         </div>
-        
+
+        <!-- Completed Tasks -->
+        <div class="card mt-4">
+            <div class="card-body">
+                <h5>✅ Completed Tasks</h5>
+                <div id="completedTasks">
+                    <div class="text-center text-muted">
+                        No completed tasks...
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Instructions -->
         <div class="mt-4">
             <h5>📖 How to Use:</h5>
             <ol>
-                <li>Facebook Developer se access token lo</li>
-                <li>Jis post pe comment karna hai uska ID lo</li>
-                <li>Messages ka .txt file banayo (har line ek comment)</li>
-                <li>Start button dabao aur wait karo</li>
-                <li>Real-time progress dekho</li>
+                <li><strong>Multiple Tokens</strong> - Ek se zyada tokens daalo (har line pe ek token)</li>
+                <li><strong>Post ID</strong> - Jis post pe comment karna hai uska ID lo</li>
+                <li><strong>Messages File</strong> - .txt file banayo (har line ek comment)</li>
+                <li><strong>Start Task</strong> - Ek se zyada tasks ek saath chal sakte hain</li>
+                <li><strong>Monitor</strong> - Har task ka alag progress dekho</li>
             </ol>
             
             <div class="alert alert-warning">
@@ -146,14 +146,14 @@
                     <li>Facebook ke rate limits ka dhyan rakho</li>
                     <li>Minimum 5 seconds ka delay rakho</li>
                     <li>Test karo pehle 2-3 messages se</li>
-                    <li>Token secure rakho</li>
+                    <li>Tokens secure rakho</li>
                 </ul>
             </div>
         </div>
     </div>
 
     <script>
-        let statusInterval;
+        let activeIntervals = {};
         
         // Form submission
         document.getElementById('taskForm').addEventListener('submit', function(e) {
@@ -161,18 +161,12 @@
             startTask();
         });
         
-        // Stop button
-        document.getElementById('stopBtn').addEventListener('click', function() {
-            stopTask();
-        });
-        
         function startTask() {
             const formData = new FormData(document.getElementById('taskForm'));
             const startBtn = document.getElementById('startBtn');
-            const stopBtn = document.getElementById('stopBtn');
             
             startBtn.disabled = true;
-            startBtn.innerHTML = '⏳ Starting...';
+            startBtn.innerHTML = '⏳ Starting Task...';
             
             fetch('/start', {
                 method: 'POST',
@@ -182,92 +176,170 @@
             .then(data => {
                 if (data.success) {
                     showAlert('success', data.message);
-                    startBtn.disabled = true;
-                    stopBtn.disabled = false;
-                    startStatusUpdates();
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '🚀 Start New Task';
+                    startTaskMonitoring(data.task_id);
                 } else {
                     showAlert('danger', data.error);
                     startBtn.disabled = false;
-                    startBtn.innerHTML = '🚀 Start Auto Commenting';
+                    startBtn.innerHTML = '🚀 Start New Task';
                 }
             })
             .catch(error => {
                 showAlert('danger', 'Network error: ' + error);
                 startBtn.disabled = false;
-                startBtn.innerHTML = '🚀 Start Auto Commenting';
+                startBtn.innerHTML = '🚀 Start New Task';
             });
         }
         
-        function stopTask() {
-            fetch('/stop', {
+        function stopTask(taskId) {
+            fetch(`/stop/${taskId}`, {
                 method: 'POST'
             })
             .then(response => response.json())
             .then(data => {
                 showAlert('warning', data.message);
-                document.getElementById('stopBtn').disabled = true;
             });
         }
         
-        function startStatusUpdates() {
-            document.getElementById('progressBarContainer').style.display = 'block';
-            document.getElementById('statusDetails').style.display = 'block';
+        function startTaskMonitoring(taskId) {
+            if (activeIntervals[taskId]) {
+                clearInterval(activeIntervals[taskId]);
+            }
             
-            statusInterval = setInterval(updateStatus, 2000);
-            updateStatus();
+            activeIntervals[taskId] = setInterval(() => {
+                updateTaskStatus(taskId);
+            }, 2000);
+            
+            updateTaskStatus(taskId);
         }
         
-        function updateStatus() {
-            fetch('/status')
+        function updateTaskStatus(taskId) {
+            fetch(`/status/${taskId}`)
             .then(response => response.json())
-            .then(data => {
-                const statusDisplay = document.getElementById('statusDisplay');
-                const progressBar = document.getElementById('progressBar');
-                const startBtn = document.getElementById('startBtn');
-                const stopBtn = document.getElementById('stopBtn');
-                
-                if (data.running) {
-                    statusDisplay.innerHTML = `
-                        <div class="text-success">
-                            <strong>🟢 Running:</strong> ${data.current_message}
-                        </div>
-                    `;
-                    progressBar.style.width = data.progress + '%';
-                    progressBar.innerHTML = data.progress + '%';
-                    
-                    document.getElementById('sentCount').textContent = data.sent_messages;
-                    document.getElementById('failedCount').textContent = data.failed_messages;
-                    document.getElementById('totalCount').textContent = data.total_messages;
-                    
-                    startBtn.disabled = true;
-                    stopBtn.disabled = false;
-                } else {
-                    statusDisplay.innerHTML = `
-                        <div class="text-muted">
-                            <strong>⚫ Stopped:</strong> ${data.current_message}
-                        </div>
-                    `;
-                    
-                    if (data.sent_messages > 0) {
-                        const successRate = ((data.sent_messages / data.total_messages) * 100).toFixed(1);
-                        statusDisplay.innerHTML += `
-                            <div class="mt-2">
-                                <strong>Results:</strong> ${data.sent_messages} sent, 
-                                ${data.failed_messages} failed (${successRate}% success rate)
-                            </div>
-                        `;
+            .then(task => {
+                if (task.error) {
+                    // Task not found, stop monitoring
+                    if (activeIntervals[taskId]) {
+                        clearInterval(activeIntervals[taskId]);
+                        delete activeIntervals[taskId];
                     }
-                    
-                    progressBar.style.width = '0%';
-                    progressBar.innerHTML = '0%';
-                    
-                    startBtn.disabled = false;
-                    startBtn.innerHTML = '🚀 Start Auto Commenting';
-                    stopBtn.disabled = true;
-                    
-                    clearInterval(statusInterval);
+                    updateTasksList();
+                    return;
+                }
+                
+                // Update the tasks list
+                updateTasksList();
+                
+                // Stop monitoring if task is completed
+                if (!task.running && activeIntervals[taskId]) {
+                    clearInterval(activeIntervals[taskId]);
+                    delete activeIntervals[taskId];
                 }
             });
+        }
+        
+        function updateTasksList() {
+            fetch('/tasks')
+            .then(response => response.json())
+            .then(data => {
+                updateActiveTasks(data.active_tasks);
+                updateCompletedTasks(data.completed_tasks);
+            });
+        }
+        
+        function updateActiveTasks(activeTasks) {
+            const container = document.getElementById('activeTasks');
+            
+            if (Object.keys(activeTasks).length === 0) {
+                container.innerHTML = '<div class="text-center text-muted">No active tasks...</div>';
+                return;
+            }
+            
+            let html = '';
+            for (const [taskId, task] of Object.entries(activeTasks)) {
+                const successRate = task.total_messages > 0 ? 
+                    ((task.sent_messages / task.total_messages) * 100).toFixed(1) : 0;
+                
+                html += `
+                    <div class="task-card running">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>${taskId}</strong>
+                                <span class="token-badge">${task.active_tokens} tokens</span>
+                            </div>
+                            <button class="btn btn-sm btn-danger" onclick="stopTask('${taskId}')">Stop</button>
+                        </div>
+                        <div class="mt-2">
+                            <small>${task.current_message}</small>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: ${task.progress}%">
+                                ${task.progress}%
+                            </div>
+                        </div>
+                        <div class="row text-center small">
+                            <div class="col-3">
+                                <strong>${task.sent_messages}</strong><br>Sent
+                            </div>
+                            <div class="col-3">
+                                <strong>${task.failed_messages}</strong><br>Failed
+                            </div>
+                            <div class="col-3">
+                                <strong>${task.total_messages}</strong><br>Total
+                            </div>
+                            <div class="col-3">
+                                <strong>${successRate}%</strong><br>Success
+                            </div>
+                        </div>
+                        ${task.last_error ? `<div class="text-danger small mt-1">Last Error: ${task.last_error}</div>` : ''}
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+        
+        function updateCompletedTasks(completedTasks) {
+            const container = document.getElementById('completedTasks');
+            
+            if (Object.keys(completedTasks).length === 0) {
+                container.innerHTML = '<div class="text-center text-muted">No completed tasks...</div>';
+                return;
+            }
+            
+            let html = '';
+            for (const [taskId, task] of Object.entries(completedTasks)) {
+                const successRate = task.total_messages > 0 ? 
+                    ((task.sent_messages / task.total_messages) * 100).toFixed(1) : 0;
+                
+                html += `
+                    <div class="task-card completed">
+                        <div>
+                            <strong>${taskId}</strong>
+                            <span class="token-badge">${task.active_tokens} tokens</span>
+                        </div>
+                        <div class="mt-2">
+                            <small>Completed: ${new Date(task.end_time).toLocaleString()}</small>
+                        </div>
+                        <div class="row text-center small">
+                            <div class="col-3">
+                                <strong class="text-success">${task.sent_messages}</strong><br>Sent
+                            </div>
+                            <div class="col-3">
+                                <strong class="text-danger">${task.failed_messages}</strong><br>Failed
+                            </div>
+                            <div class="col-3">
+                                <strong>${task.total_messages}</strong><br>Total
+                            </div>
+                            <div class="col-3">
+                                <strong>${successRate}%</strong><br>Success
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
         }
         
         function showAlert(type, message) {
@@ -286,6 +358,10 @@
                 }
             }, 5000);
         }
+        
+        // Start monitoring existing tasks on page load
+        setInterval(updateTasksList, 3000);
+        updateTasksList();
     </script>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
