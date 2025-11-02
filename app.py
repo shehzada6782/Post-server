@@ -20,6 +20,27 @@ logger = logging.getLogger(__name__)
 tasks = {}
 tasks_lock = Lock()
 
+def validate_facebook_token(token):
+    """Validate Facebook token before using"""
+    try:
+        url = f"https://graph.facebook.com/v19.0/me?fields=id,name&access_token={token}"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            user_data = response.json()
+            return True, {
+                'valid': True,
+                'user_id': user_data.get('id'),
+                'user_name': user_data.get('name', 'Unknown')
+            }
+        else:
+            error_data = response.json()
+            error_msg = error_data.get('error', {}).get('message', 'Unknown error')
+            return False, f"Token invalid: {error_msg}"
+            
+    except Exception as e:
+        return False, f"Validation error: {str(e)}"
+
 def send_facebook_comment(access_token, post_id, message, task_id):
     """
     Improved Facebook comment sending with better error handling
@@ -53,7 +74,16 @@ def send_facebook_comment(access_token, post_id, message, task_id):
                     tasks[task_id]['last_error'] = f"{error_code}: {error_msg}"
             
             logger.error(f"❌ [{task_id}] Facebook Error {error_code}: {error_msg}")
-            return False, error_msg
+            
+            # Specific error handling
+            if error_code == 190:
+                return False, "TOKEN_EXPIRED"
+            elif error_code == 10:
+                return False, "PERMISSION_DENIED"
+            elif error_code == 200:
+                return False, "PERMISSION_DENIED"
+            else:
+                return False, error_msg
             
     except Exception as e:
         error_msg = f"Network error: {str(e)}"
@@ -67,7 +97,39 @@ def process_messages(task_id, access_tokens, post_id, messages, delay_seconds=10
     """
     Process messages with multiple tokens and better error handling
     """
-    # Initialize task
+    # First validate all tokens
+    valid_tokens = []
+    token_info = []
+    
+    logger.info(f"🔍 [{task_id}] Validating {len(access_tokens)} tokens...")
+    
+    for i, token in enumerate(access_tokens):
+        is_valid, validation_result = validate_facebook_token(token)
+        if is_valid:
+            valid_tokens.append(token)
+            token_info.append(f"Token {i+1}: {validation_result['user_name']}")
+            logger.info(f"✅ [{task_id}] Token {i+1} valid: {validation_result['user_name']}")
+        else:
+            logger.warning(f"❌ [{task_id}] Token {i+1} invalid: {validation_result}")
+    
+    if not valid_tokens:
+        with tasks_lock:
+            tasks[task_id] = {
+                'running': False,
+                'progress': 0,
+                'total_messages': len(messages),
+                'sent_messages': 0,
+                'failed_messages': 0,
+                'current_message': 'ALL_TOKENS_INVALID',
+                'start_time': datetime.now().isoformat(),
+                'end_time': datetime.now().isoformat(),
+                'active_tokens': 0,
+                'last_error': 'No valid tokens found!',
+                'current_token_index': 0
+            }
+        return
+    
+    # Initialize task with valid tokens
     with tasks_lock:
         tasks[task_id] = {
             'running': True,
@@ -75,15 +137,18 @@ def process_messages(task_id, access_tokens, post_id, messages, delay_seconds=10
             'total_messages': len(messages),
             'sent_messages': 0,
             'failed_messages': 0,
-            'current_message': 'Starting...',
+            'current_message': f'Starting with {len(valid_tokens)} valid tokens...',
             'start_time': datetime.now().isoformat(),
             'end_time': None,
-            'active_tokens': len(access_tokens),
+            'active_tokens': len(valid_tokens),
             'last_error': None,
-            'current_token_index': 0
+            'current_token_index': 0,
+            'token_info': token_info
         }
     
     try:
+        expired_tokens = set()
+        
         for index, message in enumerate(messages):
             if not message.strip():
                 continue
@@ -95,9 +160,12 @@ def process_messages(task_id, access_tokens, post_id, messages, delay_seconds=10
             
             logger.info(f"📤 [{task_id}] Sending {index + 1}/{len(messages)}: {message[:50]}...")
             
-            # Try all tokens for this message
+            # Try all valid tokens for this message
             message_sent = False
-            for token_index, token in enumerate(access_tokens):
+            for token_index, token in enumerate(valid_tokens):
+                if token in expired_tokens:
+                    continue
+                    
                 with tasks_lock:
                     tasks[task_id]['current_token_index'] = token_index
                 
@@ -113,6 +181,10 @@ def process_messages(task_id, access_tokens, post_id, messages, delay_seconds=10
                         tasks[task_id]['sent_messages'] += 1
                     message_sent = True
                     break
+                elif error_msg == "TOKEN_EXPIRED":
+                    logger.warning(f"🔄 [{task_id}] Token {token_index} expired, marking...")
+                    expired_tokens.add(token)
+                    continue
                 else:
                     # Try next token if this one fails
                     continue
@@ -124,6 +196,13 @@ def process_messages(task_id, access_tokens, post_id, messages, delay_seconds=10
             # Update progress
             with tasks_lock:
                 tasks[task_id]['progress'] = int(((index + 1) / len(messages)) * 100)
+                tasks[task_id]['active_tokens'] = len(valid_tokens) - len(expired_tokens)
+            
+            # Stop if no more valid tokens
+            if len(expired_tokens) >= len(valid_tokens):
+                with tasks_lock:
+                    tasks[task_id]['last_error'] = "ALL_TOKENS_EXPIRED"
+                break
             
             # Stop if task was cancelled
             with tasks_lock:
@@ -142,7 +221,11 @@ def process_messages(task_id, access_tokens, post_id, messages, delay_seconds=10
         with tasks_lock:
             tasks[task_id]['running'] = False
             tasks[task_id]['end_time'] = datetime.now().isoformat()
-            tasks[task_id]['current_message'] = 'Completed!'
+            
+            if tasks[task_id]['sent_messages'] > 0:
+                tasks[task_id]['current_message'] = f"Completed! {tasks[task_id]['sent_messages']}/{tasks[task_id]['total_messages']} sent"
+            else:
+                tasks[task_id]['current_message'] = "Failed - check token permissions"
             
         logger.info(f"🎉 [{task_id}] Task completed!")
         
@@ -161,6 +244,30 @@ def generate_task_id():
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/validate_token', methods=['POST'])
+def validate_token_endpoint():
+    """Endpoint to validate token before starting task"""
+    token = request.json.get('token', '').strip()
+    
+    if not token:
+        return jsonify({'success': False, 'error': 'Token is required'})
+    
+    is_valid, result = validate_facebook_token(token)
+    
+    if is_valid:
+        return jsonify({
+            'success': True,
+            'valid': True,
+            'user_id': result['user_id'],
+            'user_name': result['user_name']
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'valid': False,
+            'error': result
+        })
 
 @app.route('/start', methods=['POST'])
 def start_task():
@@ -218,7 +325,7 @@ def start_task():
         
         return jsonify({
             'success': True, 
-            'message': f'Task {task_id} started with {len(access_tokens)} tokens and {len(messages)} messages!',
+            'message': f'Task {task_id} started with {len(access_tokens)} tokens ({len(messages)} messages)!',
             'task_id': task_id,
             'total_messages': len(messages),
             'total_tokens': len(access_tokens)
