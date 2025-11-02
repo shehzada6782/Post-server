@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facebook Auto Commenter</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            padding: 30px;
+            margin-top: 30px;
+        }
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .progress {
+            height: 25px;
+            margin: 10px 0;
+        }
+        .btn-custom {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-weight: bold;
+        }
+        .btn-stop {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">🚀 Facebook Auto Commenter</h1>
+        
+        <!-- Input Form -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form id="taskForm" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label class="form-label">Facebook Access Token</label>
+                        <input type="password" class="form-control" name="access_token" 
+                               placeholder="EAAG..." required>
+                        <div class="form-text">
+                            Get token from: <a href="https://developers.facebook.com/tools/explorer/" target="_blank">Facebook Graph API Explorer</a>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Post ID</label>
+                        <input type="text" class="form-control" name="post_id" 
+                               placeholder="123456789012345" required>
+                        <div class="form-text">
+                            Post URL se ID nikale: https://facebook.com/permalink.php?story_fbid=<strong>POST_ID</strong>&id=PAGE_ID
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Delay between messages (seconds)</label>
+                        <input type="number" class="form-control" name="delay" value="10" min="5" max="300">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Messages File (.txt)</label>
+                        <input type="file" class="form-control" name="messages_file" 
+                               accept=".txt" required>
+                        <div class="form-text">
+                            Har line ek alag comment hogi. UTF-8 encoding use kare.
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-custom" id="startBtn">
+                            🚀 Start Auto Commenting
+                        </button>
+                        <button type="button" class="btn btn-stop" id="stopBtn" disabled>
+                            🛑 Stop Task
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Status Display -->
+        <div class="status-card">
+            <h5>📊 Task Status</h5>
+            <div id="statusDisplay">
+                <div class="text-center text-muted">
+                    No task running...
+                </div>
+            </div>
+            
+            <div class="progress mt-3" style="display: none;" id="progressBarContainer">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" style="width: 0%" id="progressBar">
+                    0%
+                </div>
+            </div>
+            
+            <div id="statusDetails" class="mt-3" style="display: none;">
+                <div class="row text-center">
+                    <div class="col-md-4">
+                        <strong id="sentCount">0</strong><br>
+                        <small>Sent</small>
+                    </div>
+                    <div class="col-md-4">
+                        <strong id="failedCount">0</strong><br>
+                        <small>Failed</small>
+                    </div>
+                    <div class="col-md-4">
+                        <strong id="totalCount">0</strong><br>
+                        <small>Total</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Instructions -->
+        <div class="mt-4">
+            <h5>📖 How to Use:</h5>
+            <ol>
+                <li>Facebook Developer se access token lo</li>
+                <li>Jis post pe comment karna hai uska ID lo</li>
+                <li>Messages ka .txt file banayo (har line ek comment)</li>
+                <li>Start button dabao aur wait karo</li>
+                <li>Real-time progress dekho</li>
+            </ol>
+            
+            <div class="alert alert-warning">
+                <strong>⚠️ Important:</strong> 
+                <ul class="mb-0">
+                    <li>Facebook ke rate limits ka dhyan rakho</li>
+                    <li>Minimum 5 seconds ka delay rakho</li>
+                    <li>Test karo pehle 2-3 messages se</li>
+                    <li>Token secure rakho</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let statusInterval;
+        
+        // Form submission
+        document.getElementById('taskForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            startTask();
+        });
+        
+        // Stop button
+        document.getElementById('stopBtn').addEventListener('click', function() {
+            stopTask();
+        });
+        
+        function startTask() {
+            const formData = new FormData(document.getElementById('taskForm'));
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            
+            startBtn.disabled = true;
+            startBtn.innerHTML = '⏳ Starting...';
+            
+            fetch('/start', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert('success', data.message);
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                    startStatusUpdates();
+                } else {
+                    showAlert('danger', data.error);
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '🚀 Start Auto Commenting';
+                }
+            })
+            .catch(error => {
+                showAlert('danger', 'Network error: ' + error);
+                startBtn.disabled = false;
+                startBtn.innerHTML = '🚀 Start Auto Commenting';
+            });
+        }
+        
+        function stopTask() {
+            fetch('/stop', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                showAlert('warning', data.message);
+                document.getElementById('stopBtn').disabled = true;
+            });
+        }
+        
+        function startStatusUpdates() {
+            document.getElementById('progressBarContainer').style.display = 'block';
+            document.getElementById('statusDetails').style.display = 'block';
+            
+            statusInterval = setInterval(updateStatus, 2000);
+            updateStatus();
+        }
+        
+        function updateStatus() {
+            fetch('/status')
+            .then(response => response.json())
+            .then(data => {
+                const statusDisplay = document.getElementById('statusDisplay');
+                const progressBar = document.getElementById('progressBar');
+                const startBtn = document.getElementById('startBtn');
+                const stopBtn = document.getElementById('stopBtn');
+                
+                if (data.running) {
+                    statusDisplay.innerHTML = `
+                        <div class="text-success">
+                            <strong>🟢 Running:</strong> ${data.current_message}
+                        </div>
+                    `;
+                    progressBar.style.width = data.progress + '%';
+                    progressBar.innerHTML = data.progress + '%';
+                    
+                    document.getElementById('sentCount').textContent = data.sent_messages;
+                    document.getElementById('failedCount').textContent = data.failed_messages;
+                    document.getElementById('totalCount').textContent = data.total_messages;
+                    
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                } else {
+                    statusDisplay.innerHTML = `
+                        <div class="text-muted">
+                            <strong>⚫ Stopped:</strong> ${data.current_message}
+                        </div>
+                    `;
+                    
+                    if (data.sent_messages > 0) {
+                        const successRate = ((data.sent_messages / data.total_messages) * 100).toFixed(1);
+                        statusDisplay.innerHTML += `
+                            <div class="mt-2">
+                                <strong>Results:</strong> ${data.sent_messages} sent, 
+                                ${data.failed_messages} failed (${successRate}% success rate)
+                            </div>
+                        `;
+                    }
+                    
+                    progressBar.style.width = '0%';
+                    progressBar.innerHTML = '0%';
+                    
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '🚀 Start Auto Commenting';
+                    stopBtn.disabled = true;
+                    
+                    clearInterval(statusInterval);
+                }
+            });
+        }
+        
+        function showAlert(type, message) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show mt-3`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.card'));
+            
+            setTimeout(() => {
+                if (alertDiv.parentElement) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
